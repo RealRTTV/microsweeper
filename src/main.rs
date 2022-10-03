@@ -25,6 +25,7 @@ use winapi::um::wincontypes::KEY_EVENT_RECORD;
 use winapi::um::wincontypes::INPUT_RECORD;
 use winapi::um::wincontypes::KEY_EVENT;
 use winapi::um::sysinfoapi::GetTickCount64;
+use crate::KeyAction::{Down, Empty, Enter, Flag, Left, Right, Up};
 
 // beginner: 9x9 w/ 10 @ 12.3%
 // intermediate: 16x16 w/ 40 @ 15.6%
@@ -52,29 +53,29 @@ fn main(_: isize, _: *const *const u8) -> isize {
 
     loop {
         match unsafe { read_key() } {
-            0 => {}
-            1 => if y != 0 { // up key
+            Empty => {}
+            Up => if y != 0 { // up key
                 y -= 1;
                 print("\x1B[1A");
             }
-            2 => if y + 1 < HEIGHT { // down key
+            Down => if y + 1 < HEIGHT { // down key
                 y += 1;
                 print("\x1B[1B");
             }
-            3 => if x != 0 { // left key
+            Left => if x != 0 { // left key
                 x -= 1;
                 print("\x1B[2D");
             }
-            4 => if x + 1 < WIDTH { // right key
+            Right => if x + 1 < WIDTH { // right key
                 x += 1;
                 print("\x1B[2C");
             }
-            5 => if board[y][x] & 1 == 0 { // f key
+            Flag => if board[y][x] & 1 == 0 { // f key
                 board[y][x] ^= 0b10;
                 stdout_bytes(fmt(board[y][x]).as_ptr(), 8);
                 print("\x1B[1D");
             }
-            6 => if board[y][x] & 0b11 == 0 { // enter key
+            Enter => if board[y][x] & 0b11 == 0 { // enter key
                 if start.is_none() {
                     place_mines(&mut board, x, y);
                     start = Some( unsafe { GetTickCount64() } as u64 );
@@ -85,7 +86,7 @@ fn main(_: isize, _: *const *const u8) -> isize {
                         let mut arr = [(0, 0); WIDTH * HEIGHT];
                         arr[0] = (x, y);
                         let mut index = 0;
-                        while index != usize::MAX {
+                        loop {
                             let (x, y) = arr[index];
                             if board[y][x] & 1 == 0 {
                                 board[y][x] |= 1;
@@ -103,6 +104,9 @@ fn main(_: isize, _: *const *const u8) -> isize {
                                 }
                             }
                             index -= 1;
+                            if index == usize::MAX {
+                                break;
+                            }
                         }
 
                         rerender_board(&board, x, y);
@@ -136,7 +140,6 @@ fn main(_: isize, _: *const *const u8) -> isize {
                     loop {}
                 }
             }
-            _ => unsafe { unreachable_unchecked() }
         }
     }
 }
@@ -146,9 +149,9 @@ fn stdout_bytes(ptr: *const u8, len: u32) {
     unsafe { WriteConsoleA(GetStdHandle(-11i32 as u32), ptr as *const _, len, null_mut(), null_mut()); };
 }
 
-#[inline(never)]
-fn print(str: &str) {
-    unsafe { WriteConsoleA(GetStdHandle(-11i32 as u32), str.as_ptr() as *const _, str.len() as u32, null_mut(), null_mut()); }
+#[inline(always)]
+fn print(str: &'static str) {
+    stdout_bytes(str.as_ptr(), str.len() as u32);
 }
 
 #[inline(never)]
@@ -234,34 +237,34 @@ fn place_mines(board: &mut [[u8;WIDTH];HEIGHT], input_x: usize, input_y: usize) 
 }
 
 #[inline(always)]
-unsafe fn read_key() -> u8 {
+unsafe fn read_key() -> KeyAction {
     let mut buffer: INPUT_RECORD = zeroed();
     ReadConsoleInputA(GetStdHandle(-10i32 as u32), &mut buffer, 1, &mut zeroed());
     if buffer.EventType == KEY_EVENT {
         let key_event: KEY_EVENT_RECORD = transmute(buffer.Event);
         if key_event.bKeyDown == 0 {
-            0
+            Empty
         } else {
             let char = *key_event.uChar.AsciiChar();
             if char == 'f' as i8 {
-                5
+                Flag
             } else if char == 0 {
                 match key_event.wVirtualKeyCode as i32 {
-                    0x26 => 1,
-                    0x28 => 2,
-                    0x25 => 3,
-                    0x27 => 4,
-                    0x0D => 6,
-                    _ => 0
+                    0x26 => Up,
+                    0x28 => Down,
+                    0x25 => Left,
+                    0x27 => Right,
+                    0x0D => Enter,
+                    _ => Empty
                 }
             } else if char == '\r' as i8 {
-                6
+                Enter
             } else {
-                0
+                Empty
             }
         }
     } else {
-        0
+        Empty
     }
 }
 
@@ -277,6 +280,18 @@ fn print_usize(mut usize: usize) {
     }
     stdout_bytes(unsafe { arr.as_ptr().add(offset) }, (MAX_LENGTH - offset) as u32);
 }
+
+#[repr(u8)]
+enum KeyAction {
+    Empty,
+    Left,
+    Right,
+    Up,
+    Down,
+    Flag,
+    Enter
+}
+
 
 #[repr(transparent)]
 struct Random(u64);
