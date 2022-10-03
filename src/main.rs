@@ -10,12 +10,8 @@
 #![feature(start)]
 #![feature(box_syntax)]
 #![feature(inline_const)]
+#![feature(int_log)]
 
-extern crate alloc;
-
-use alloc::boxed::Box;
-use alloc::string::String;
-use alloc::string::ToString;
 use core::alloc::GlobalAlloc;
 use core::alloc::Layout;
 use core::hint::unreachable_unchecked;
@@ -31,9 +27,6 @@ use winapi::um::wincontypes::KEY_EVENT_RECORD;
 use winapi::um::wincontypes::INPUT_RECORD;
 use winapi::um::wincontypes::KEY_EVENT;
 use winapi::um::sysinfoapi::GetTickCount64;
-use winapi::um::heapapi::HeapAlloc;
-use winapi::um::heapapi::GetProcessHeap;
-use winapi::um::heapapi::HeapFree;
 
 // beginner: 9x9 w/ 10 @ 12.3%
 // intermediate: 16x16 w/ 40 @ 15.6%
@@ -80,7 +73,7 @@ fn main(_: isize, _: *const *const u8) -> isize {
             }
             5 => if board[y][x] & 1 == 0 { // f key
                 board[y][x] ^= 0b10;
-                print(fmt(board[y][x]));
+                unsafe { WriteConsoleA(GetStdHandle(-11i32 as u32), fmt(board[y][x]).as_ptr() as *const _, 8_u32, null_mut(), null_mut()); };
                 print("\x1B[1D");
             }
             6 => if board[y][x] & 0b11 == 0 { // enter key
@@ -91,17 +84,18 @@ fn main(_: isize, _: *const *const u8) -> isize {
 
                 match board[y][x] & 0b1100 {
                     EMPTY_TYPE => {
-                        let mut wrapped = Some(box Node::new((x, y)));
-                        while let Some(mut node) = wrapped {
-                            let (x, y) = node.value;
+                        let mut arr = [(0, 0); WIDTH * HEIGHT];
+                        let mut index = 0;
+                        while index != usize::MAX {
+                            let (x, y) = arr[index];
                             if board[y][x] & 1 == 0 {
                                 board[y][x] |= 1;
                                 non_mines_left -= 1;
                                 for &(x, y) in [(x - 1, y - 1), (x, y - 1), (x + 1, y - 1), (x - 1, y), (x + 1, y), (x - 1, y + 1), (x, y + 1), (x + 1, y + 1)].iter().filter(|(x, y)| x < &WIDTH && y < &HEIGHT) {
                                     if board[y][x] & 1 == 0 {
                                         if board[y][x] & 0b1100 == EMPTY_TYPE {
-                                            let x = Some(box Node { value: (x, y), next: node.next });
-                                            node.next = x;
+                                            arr[index] = (x, y);
+                                            index += 1;
                                         } else {
                                             board[y][x] |= 1;
                                             non_mines_left -= 1;
@@ -109,7 +103,7 @@ fn main(_: isize, _: *const *const u8) -> isize {
                                     }
                                 }
                             }
-                            wrapped = node.next;
+                            index -= 1;
                         }
 
                         rerender_board(&board, x, y);
@@ -117,16 +111,16 @@ fn main(_: isize, _: *const *const u8) -> isize {
                     WARNING_TYPE => {
                         board[y][x] |= 1;
                         non_mines_left -= 1;
-                        print(fmt(board[y][x]));
+                        unsafe { WriteConsoleA(GetStdHandle(-11i32 as u32), fmt(board[y][x]).as_ptr() as *const _, 8_u32, null_mut(), null_mut()); };
                         print("\x1B[1D");
                     },
                     MINE_TYPE => {
                         print("\x1B[");
-                        print(&(HEIGHT - y).to_string());
+                        print_usize(HEIGHT - y);
                         print("B\x1B[");
-                        print(&(x * 2 + 2).to_string());
+                        print_usize(x * 2 + 2);
                         print("D\n\x1B[37mGame Over, you clicked a mine!\nPlaytime: ");
-                        print(&timestamp(start));
+                        timestamp(start);
                         print("s\n");
                         loop {}
                     }
@@ -134,11 +128,11 @@ fn main(_: isize, _: *const *const u8) -> isize {
                 }
                 if non_mines_left == 0 {
                     print("\x1B[");
-                    print(&(HEIGHT - y).to_string());
+                    print_usize(HEIGHT - y);
                     print("B\x1B[");
-                    print(&(x * 2 + 2).to_string());
+                    print_usize(x * 2 + 2);
                     print("D\n\x1B[37mYou win!\nPlaytime: ");
-                    print(&timestamp(start));
+                    timestamp(start);
                     print("s\n");
                     loop {}
                 }
@@ -154,55 +148,54 @@ fn print(str: &str) {
 }
 
 #[inline(never)]
-fn timestamp(start: Option<u64>) -> String {
-    start.map(|x| ((unsafe { GetTickCount64() } as u64 - x) as f64 / 1000.0).to_string()).unwrap_or("[Failed to get playtime]".to_string())
+fn timestamp(start: Option<u64>) {
+    print_usize(unsafe { (GetTickCount64() as u64 - start.unwrap_unchecked()) / 1000 } as usize)
 }
 
 #[inline(never)]
-fn fmt(tile: u8) -> &'static str {
+fn fmt(tile: u8) -> &'static [u8; 8] {
     if tile & 0b10 == 0b10 {
-        return "\x1B[36;1m$";
+        return b"\x1B[36;1m$";
     }
 
     if tile & 1 == 0 {
-        return "\x1B[37m_";
+        return b"\x1B[37m\0\0_";
     }
 
     match tile & 0b1100 {
-        EMPTY_TYPE => "\x1B[30m ",
+        EMPTY_TYPE => b"\x1B[30m\0\0 ",
         WARNING_TYPE => match tile & 0b01110000 {
-            0b00000000 => "\x1B[34;1m1",
-            0b00010000 => "\x1B[32m2",
-            0b00100000 => "\x1B[31;1m3",
-            0b00110000 => "\x1B[34m4",
-            0b01000000 => "\x1B[31m5",
-            0b01010000 => "\x1B[37m6",
-            0b01100000 => "\x1B[35m7",
-            0b01110000 => "\x1B[37m8",
+            0b00000000 => b"\x1B[34;1m1",
+            0b00010000 => b"\x1B[32m\0\02",
+            0b00100000 => b"\x1B[31;1m3",
+            0b00110000 => b"\x1B[34m\0\04",
+            0b01000000 => b"\x1B[31m\0\05",
+            0b01010000 => b"\x1B[37m\0\06",
+            0b01100000 => b"\x1B[35m\0\07",
+            0b01110000 => b"\x1B[37m\0\08",
             _ => unsafe { unreachable_unchecked() }
         },
-        MINE_TYPE => "\x1B[31;0mX",
+        MINE_TYPE => b"\x1B[31\0\0mX",
         _ => unsafe { unreachable_unchecked() }
     }
 }
 
 #[inline(never)]
 fn rerender_board(board: &[[u8;WIDTH];HEIGHT], x: usize, y: usize) {
-    let mut str = String::new();
+    let mut array = [b' '; HEIGHT * (WIDTH * 9 + 9)];
     for i in 0..HEIGHT {
-        str.push_str("[ ");
+        array[i * (WIDTH * 9 + 9)] = b'[';
         for j in 0..WIDTH {
-            str.push_str(fmt(board[i][j]));
-            str.push(' ');
+            array[(i * (WIDTH * 9 + 9) + (j * 9 + 2))..][..8].copy_from_slice(fmt(board[i][j]));
         }
-        str.push_str("\x1B[37m]\n");
+        array[(i * (WIDTH * 9 + 9) + (WIDTH * 9 + 2))..][..7].copy_from_slice(b"\x1B[37m]\n");
     }
     print("\x1Bc");
-    print(&str);
+    unsafe { WriteConsoleA(GetStdHandle(-11i32 as u32), array.as_ptr() as *const _,(HEIGHT * (WIDTH * 9 + 9)) as u32, null_mut(), null_mut()); }
     print("\x1B[");
-    print(&(y + 1).to_string());
+    print_usize(y + 1);
     print(";");
-    print(&(x * 2 + 3).to_string());
+    print_usize(x * 2 + 3);
     print("f");
 }
 
@@ -264,6 +257,21 @@ unsafe fn read_key() -> u8 {
     }
 }
 
+#[inline(never)]
+fn print_usize(mut usize: usize) {
+    const MAX_LENGTH: usize = 10;
+    let mut arr = [0; MAX_LENGTH];
+    let mut offset = MAX_LENGTH - 1;
+    while usize > 0 {
+        arr[offset] = (usize % 10) as u8 + '0' as u8;
+        offset -= 1;
+        usize /= 10;
+    }
+    unsafe {
+        WriteConsoleA(GetStdHandle(-11i32 as u32), arr.as_ptr().add(offset) as *const _, (MAX_LENGTH - offset) as u32, null_mut(), null_mut());
+    }
+}
+
 #[repr(transparent)]
 struct Random(u64);
 
@@ -280,18 +288,6 @@ impl Random {
     #[inline(always)]
     fn new() -> Random {
         Random(unsafe { GetTickCount64() } as u64)
-    }
-}
-
-struct Node<T> {
-    value: T,
-    next: Option<Box<Node<T>>>
-}
-
-impl<T> Node<T> {
-    #[inline(always)]
-    fn new(value: T) -> Node<T> {
-        Node { value, next: None }
     }
 }
 
@@ -314,12 +310,12 @@ struct MyAllocator;
 
 unsafe impl GlobalAlloc for MyAllocator {
     #[inline(never)]
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        HeapAlloc(GetProcessHeap(), 0, layout.size()) as *mut u8
+    unsafe fn alloc(&self, _: Layout) -> *mut u8 {
+        unreachable_unchecked()
     }
 
     #[inline(never)]
-    unsafe fn dealloc(&self, ptr: *mut u8, _: Layout) {
-        HeapFree(GetProcessHeap(), 0, ptr as *mut _);
+    unsafe fn dealloc(&self, _: *mut u8, _: Layout) {
+        unreachable_unchecked()
     }
 }
