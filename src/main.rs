@@ -162,9 +162,9 @@ fn fmt(tile: u8) -> &'static [u8; 8] {
         return b"\x1B[36;1m$";
     }
 
-    if tile & 0b1100 == MINE_TYPE {
-        return b"\x1B[31\0\0mX";
-    }
+    // if tile & 0b1100 == MINE_TYPE {
+    //     return b"\x1B[31\0\0mX";
+    // }
 
     if tile & 1 == 0 {
         return b"\x1B[37m\0\0_";
