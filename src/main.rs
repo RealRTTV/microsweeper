@@ -38,9 +38,7 @@ const EMPTY_TYPE: u8 = 0b0000;
 const WARNING_TYPE: u8 = 0b0100;
 const MINE_TYPE: u8 = 0b1000;
 
-#[link(name = "msvcrt")]
-extern {}
-
+// todo, change to unchecked array accesses for final ver
 #[start]
 #[no_mangle]
 fn main(_: isize, _: *const *const u8) -> isize {
