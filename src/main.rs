@@ -73,7 +73,7 @@ fn main(_: isize, _: *const *const u8) -> isize {
             }
             5 => if board[y][x] & 1 == 0 { // f key
                 board[y][x] ^= 0b10;
-                unsafe { WriteConsoleA(GetStdHandle(-11i32 as u32), fmt(board[y][x]).as_ptr() as *const _, 8_u32, null_mut(), null_mut()); };
+                stdout_bytes(fmt(board[y][x]).as_ptr(), 8);
                 print("\x1B[1D");
             }
             6 => if board[y][x] & 0b11 == 0 { // enter key
@@ -85,6 +85,7 @@ fn main(_: isize, _: *const *const u8) -> isize {
                 match board[y][x] & 0b1100 {
                     EMPTY_TYPE => {
                         let mut arr = [(0, 0); WIDTH * HEIGHT];
+                        arr[0] = (x, y);
                         let mut index = 0;
                         while index != usize::MAX {
                             let (x, y) = arr[index];
@@ -120,7 +121,7 @@ fn main(_: isize, _: *const *const u8) -> isize {
                         print("B\x1B[");
                         print_usize(x * 2 + 2);
                         print("D\n\x1B[37mGame Over, you clicked a mine!\nPlaytime: ");
-                        timestamp(start);
+                        timestamp(unsafe { start.unwrap_unchecked() });
                         print("s\n");
                         loop {}
                     }
@@ -132,7 +133,7 @@ fn main(_: isize, _: *const *const u8) -> isize {
                     print("B\x1B[");
                     print_usize(x * 2 + 2);
                     print("D\n\x1B[37mYou win!\nPlaytime: ");
-                    timestamp(start);
+                    timestamp(unsafe { start.unwrap_unchecked() });
                     print("s\n");
                     loop {}
                 }
@@ -143,19 +144,28 @@ fn main(_: isize, _: *const *const u8) -> isize {
 }
 
 #[inline(never)]
+fn stdout_bytes(ptr: *const u8, len: u32) {
+    unsafe { WriteConsoleA(GetStdHandle(-11i32 as u32), ptr as *const _, len, null_mut(), null_mut()); };
+}
+
+#[inline(never)]
 fn print(str: &str) {
     unsafe { WriteConsoleA(GetStdHandle(-11i32 as u32), str.as_ptr() as *const _, str.len() as u32, null_mut(), null_mut()); }
 }
 
 #[inline(never)]
-fn timestamp(start: Option<u64>) {
-    print_usize(unsafe { (GetTickCount64() as u64 - start.unwrap_unchecked()) / 1000 } as usize)
+fn timestamp(start: u64) {
+    print_usize(unsafe { (GetTickCount64() as u64 - start) / 1000 } as usize)
 }
 
 #[inline(never)]
 fn fmt(tile: u8) -> &'static [u8; 8] {
     if tile & 0b10 == 0b10 {
         return b"\x1B[36;1m$";
+    }
+
+    if tile & 0b1100 == MINE_TYPE {
+        return b"\x1B[31\0\0mX";
     }
 
     if tile & 1 == 0 {
@@ -191,7 +201,7 @@ fn rerender_board(board: &[[u8;WIDTH];HEIGHT], x: usize, y: usize) {
         array[(i * (WIDTH * 9 + 9) + (WIDTH * 9 + 2))..][..7].copy_from_slice(b"\x1B[37m]\n");
     }
     print("\x1Bc");
-    unsafe { WriteConsoleA(GetStdHandle(-11i32 as u32), array.as_ptr() as *const _,(HEIGHT * (WIDTH * 9 + 9)) as u32, null_mut(), null_mut()); }
+    stdout_bytes(array.as_ptr(), (HEIGHT * (WIDTH * 9 + 9)) as u32);
     print("\x1B[");
     print_usize(y + 1);
     print(";");
@@ -267,9 +277,7 @@ fn print_usize(mut usize: usize) {
         offset -= 1;
         usize /= 10;
     }
-    unsafe {
-        WriteConsoleA(GetStdHandle(-11i32 as u32), arr.as_ptr().add(offset) as *const _, (MAX_LENGTH - offset) as u32, null_mut(), null_mut());
-    }
+    stdout_bytes(unsafe { arr.as_ptr().add(offset) }, (MAX_LENGTH - offset) as u32);
 }
 
 #[repr(transparent)]
