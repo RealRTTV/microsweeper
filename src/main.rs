@@ -12,8 +12,6 @@
 #![feature(inline_const)]
 #![feature(int_log)]
 
-use core::alloc::GlobalAlloc;
-use core::alloc::Layout;
 use core::hint::unreachable_unchecked;
 use core::ptr::null_mut;
 use core::mem::transmute;
@@ -303,27 +301,4 @@ impl Random {
 #[inline(always)]
 fn panic_handler(_: &PanicInfo) -> ! {
     unsafe { unreachable_unchecked() }
-}
-
-#[inline(always)]
-#[alloc_error_handler]
-fn alloc_handler(_: Layout) -> ! {
-    unsafe { unreachable_unchecked() }
-}
-
-#[global_allocator]
-static GLOBAL: MyAllocator = MyAllocator;
-
-struct MyAllocator;
-
-unsafe impl GlobalAlloc for MyAllocator {
-    #[inline(never)]
-    unsafe fn alloc(&self, _: Layout) -> *mut u8 {
-        unreachable_unchecked()
-    }
-
-    #[inline(never)]
-    unsafe fn dealloc(&self, _: *mut u8, _: Layout) {
-        unreachable_unchecked()
-    }
 }
