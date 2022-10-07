@@ -39,7 +39,7 @@ const MINE_TYPE: u8 = 0b1000;
 #[no_mangle]
 fn main(_: isize, _: *const *const u8) -> isize {
     let mut board = [[0;WIDTH];HEIGHT];
-    let mut start = None;
+    let mut start = 0;
     let mut non_mines_left = const { (WIDTH * HEIGHT) - MINE_COUNT };
     let mut x = 0;
     let mut y = 0;
@@ -70,9 +70,9 @@ fn main(_: isize, _: *const *const u8) -> isize {
                 print("\x1B[1D");
             }
             Enter => if board[y][x] & 0b11 == 0 { // enter key
-                if start.is_none() {
+                if start == 0 {
                     place_mines(&mut board, x, y);
-                    start = Some( unsafe { GetTickCount64() } as u64 );
+                    start = unsafe { GetTickCount64() } as u64;
                 }
 
                 match board[y][x] & 0b1100 {
@@ -111,17 +111,16 @@ fn main(_: isize, _: *const *const u8) -> isize {
                         unsafe { WriteConsoleA(GetStdHandle(-11i32 as u32), fmt(board[y][x]).as_ptr() as *const _, 8_u32, null_mut(), null_mut()); };
                         print("\x1B[1D");
                     },
-                    MINE_TYPE => {
+                    _ => {
                         print("\x1B[");
                         print_usize(HEIGHT - y);
                         print("B\x1B[");
                         print_usize(x * 2 + 2);
                         print("D\n\x1B[37mGame Over, you clicked a mine!\nPlaytime: ");
-                        timestamp(unsafe { start.unwrap_unchecked() });
+                        timestamp(start);
                         print("s\n");
-                        loop {}
+                        unsafe { unreachable_unchecked() }
                     }
-                    _ => unsafe { unreachable_unchecked() }
                 }
                 if non_mines_left == 0 {
                     print("\x1B[");
@@ -129,9 +128,9 @@ fn main(_: isize, _: *const *const u8) -> isize {
                     print("B\x1B[");
                     print_usize(x * 2 + 2);
                     print("D\n\x1B[37mYou win!\nPlaytime: ");
-                    timestamp(unsafe { start.unwrap_unchecked() });
+                    timestamp(start);
                     print("s\n");
-                    loop {}
+                    unsafe { unreachable_unchecked() }
                 }
             }
         }
@@ -148,7 +147,7 @@ fn print(str: &'static str) {
     stdout_bytes(str.as_ptr(), str.len() as u32);
 }
 
-#[inline(never)]
+#[inline(always)]
 fn timestamp(start: u64) {
     print_usize(unsafe { (GetTickCount64() as u64 - start) / 1000 } as usize)
 }
@@ -177,11 +176,9 @@ fn fmt(tile: u8) -> &'static [u8; 8] {
             0b01000000 => b"\x1B[31m\0\05",
             0b01010000 => b"\x1B[37m\0\06",
             0b01100000 => b"\x1B[35m\0\07",
-            0b01110000 => b"\x1B[37m\0\08",
-            _ => unsafe { unreachable_unchecked() }
+            _ => b"\x1B[37m\0\08",
         },
-        MINE_TYPE => b"\x1B[31\0\0mX",
-        _ => unsafe { unreachable_unchecked() }
+        _ => b"\x1B[31\0\0mX",
     }
 }
 
@@ -221,8 +218,7 @@ fn place_mines(board: &mut [[u8;WIDTH];HEIGHT], input_x: usize, input_y: usize) 
                     WARNING_TYPE => {
                         board[y][x] = (board[y][x] & 0b10001111) | ((board[y][x] & 0b01110000) + 16)
                     }
-                    MINE_TYPE => {}
-                    _ => unsafe { unreachable_unchecked() }
+                    _ => {}
                 }
             }
             i += 1;
@@ -285,7 +281,6 @@ enum KeyAction {
     Flag,
     Enter
 }
-
 
 #[repr(transparent)]
 struct Random(u64);
