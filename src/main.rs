@@ -60,13 +60,13 @@ fn main(_: isize, _: *const *const u8) -> isize {
     loop {
         match read_key() {
             Empty => {}
-            Up => if y != 0 { // up key
+            Up => if y > 0 { // up key
                 y -= 1;
             }
             Down => if y + 1 < HEIGHT { // down key
                 y += 1;
             }
-            Left => if x != 0 { // left key
+            Left => if x > 0 { // left key
                 x -= 1;
             }
             Right => if x + 1 < WIDTH { // right key
@@ -116,23 +116,23 @@ fn main(_: isize, _: *const *const u8) -> isize {
                         non_mines_left -= 1;
                         print_tile(board[y][x]);
                     },
-                    _ => end(b"Game Over, you clicked a mine!", start)
+                    _ => end(b"Game Over!", start)
                 }
                 if non_mines_left == 0 {
                     end(b"You win!", start);
                 }
             }
         }
-        set_cursor(x as i16 * 2 + 2, y as i16);
+        set_cursor(x * 2 + 2, y);
     }
 }
 
 #[inline(never)]
 fn end(str: &[u8], start: u64) {
-    set_cursor(0, HEIGHT as i16 + 1);
+    set_cursor(0, HEIGHT + 1);
     print(str);
     print(b"\nPlaytime: ");
-    print_usize(unsafe { (GetTickCount64() - start) / 1000 } as usize);
+    print_non_zero_usize(unsafe { (GetTickCount64() - start) / 1000 } as usize);
     print(b"s\n");
     unsafe { unreachable_unchecked() }
 }
@@ -245,22 +245,17 @@ fn read_key() -> KeyAction {
     }
 }
 
-#[inline(never)]
-fn print_usize(mut usize: usize) {
-    const MAX_LENGTH: usize = 6;
-    let mut arr = [0; MAX_LENGTH];
-    let mut offset = MAX_LENGTH - 1;
+#[inline(always)]
+fn print_non_zero_usize(mut usize: usize) {
     while usize > 0 {
-        arr[offset] = (usize % 10) as u8 + '0' as u8;
-        offset -= 1;
+        stdout_bytes(&((usize % 10) as u8 + '0' as u8) as *const _, 1);
         usize /= 10;
     }
-    stdout_bytes(unsafe { arr.as_ptr().add(offset) }, (MAX_LENGTH - offset) as u32);
 }
 
 #[inline(never)]
-fn set_cursor(x: i16, y: i16) {
-    unsafe { SetConsoleCursorPosition(stdout(), (x, y)); }
+fn set_cursor(x: usize, y: usize) {
+    unsafe { SetConsoleCursorPosition(stdout(), (*(&x as *const usize as *const i16), *(&y as *const usize as *const i16))); }
 }
 
 #[repr(u8)]
