@@ -1,4 +1,4 @@
-// cargo +nightly rustc --release --target x86_64-pc-windows-msvc  -Zbuild-std=std,panic_abort -Zbuild-std-features=panic_immediate_abort -- -Ccontrol-flow-guard=off
+// cargo rustc --release --target i686-pc-windows-msvc  -Zbuild-std=std,panic_abort -Zbuild-std-features=panic_immediate_abort -- -Ccontrol-flow-guard=off
 
 #![no_main]
 #![no_std]
@@ -10,31 +10,40 @@
 
 use core::hint::unreachable_unchecked;
 use core::ptr::null_mut;
-use core::mem::transmute;
-use core::mem::zeroed;
 use core::panic::PanicInfo;
+use winapi::ctypes::c_void;
 
-use winapi::um::consoleapi::ReadConsoleInputA;
-use winapi::um::consoleapi::WriteConsoleA;
-use winapi::um::processenv::GetStdHandle;
-use winapi::um::wincontypes::KEY_EVENT_RECORD;
-use winapi::um::wincontypes::INPUT_RECORD;
-use winapi::um::wincontypes::KEY_EVENT;
-use winapi::um::sysinfoapi::GetTickCount64;
 use crate::KeyAction::{Down, Empty, Enter, Flag, Left, Right, Up};
 
 // beginner: 9x9 w/ 10 @ 12.3%
 // intermediate: 16x16 w/ 40 @ 15.6%
 // expert: 30x16 w/ 99 @ 20.6%
-const WIDTH: usize = 9;
-const HEIGHT: usize = 9;
-const MINE_COUNT: usize = 10;
+const WIDTH: usize = 16;
+const HEIGHT: usize = 16;
+const MINE_COUNT: usize = 40;
 
 const EMPTY_TYPE: u8 = 0b0000;
 const WARNING_TYPE: u8 = 0b0100;
 const MINE_TYPE: u8 = 0b1000;
 
-// todo, change to unchecked array accesses for final ver
+#[link(name = "msvcrt")]
+extern {
+    pub fn _getch() -> i32;
+}
+
+extern "system" {
+    #[allow(improper_ctypes)]
+    pub fn SetConsoleCursorPosition(handle: *const c_void, pos: (i16, i16)) -> bool;
+
+    pub fn SetConsoleTextAttribute(handle: *const c_void, attribs: u16) -> bool;
+
+    pub fn GetTickCount64() -> u64;
+
+    pub fn WriteConsoleA(handle: *const c_void, ptr: *const c_void, len: u32, num_chars_written: *mut u32, reserved: *mut c_void) -> bool;
+
+    pub fn GetStdHandle(id: u32) -> *mut c_void;
+}
+
 #[start]
 #[no_mangle]
 fn main(_: isize, _: *const *const u8) -> isize {
@@ -43,31 +52,27 @@ fn main(_: isize, _: *const *const u8) -> isize {
     let mut non_mines_left = const { (WIDTH * HEIGHT) - MINE_COUNT };
     let mut x = 0;
     let mut y = 0;
-    rerender_board(&board, x, y);
+    rerender_board(&board);
+    set_cursor(2, 0);
 
     loop {
-        match unsafe { read_key() } {
+        match read_key() {
             Empty => {}
             Up => if y != 0 { // up key
                 y -= 1;
-                print("\x1B[1A");
             }
             Down => if y + 1 < HEIGHT { // down key
                 y += 1;
-                print("\x1B[1B");
             }
             Left => if x != 0 { // left key
                 x -= 1;
-                print("\x1B[2D");
             }
             Right => if x + 1 < WIDTH { // right key
                 x += 1;
-                print("\x1B[2C");
             }
             Flag => if board[y][x] & 1 == 0 { // f key
                 board[y][x] ^= 0b10;
-                stdout_bytes(fmt(board[y][x]).as_ptr(), 8);
-                print("\x1B[1D");
+                print_tile(board[y][x]);
             }
             Enter => if board[y][x] & 0b11 == 0 { // enter key
                 if start == 0 {
@@ -77,8 +82,7 @@ fn main(_: isize, _: *const *const u8) -> isize {
 
                 match board[y][x] & 0b1100 {
                     EMPTY_TYPE => {
-                        let mut arr = [(0, 0); WIDTH * HEIGHT];
-                        arr[0] = (x, y);
+                        let mut arr = [(x, y); WIDTH * HEIGHT];
                         let mut index = 0;
                         loop {
                             let (x, y) = arr[index];
@@ -103,102 +107,116 @@ fn main(_: isize, _: *const *const u8) -> isize {
                             }
                         }
 
-                        rerender_board(&board, x, y);
+                        rerender_board(&board);
                     },
                     WARNING_TYPE => {
                         board[y][x] |= 1;
                         non_mines_left -= 1;
-                        unsafe { WriteConsoleA(GetStdHandle(-11i32 as u32), fmt(board[y][x]).as_ptr() as *const _, 8_u32, null_mut(), null_mut()); };
-                        print("\x1B[1D");
+                        print_tile(board[y][x]);
                     },
-                    _ => {
-                        print("\x1B[");
-                        print_usize(HEIGHT - y);
-                        print("B\x1B[");
-                        print_usize(x * 2 + 2);
-                        print("D\n\x1B[37mGame Over, you clicked a mine!\nPlaytime: ");
-                        timestamp(start);
-                        print("s\n");
-                        unsafe { unreachable_unchecked() }
-                    }
+                    _ => end(b"Game Over, you clicked a mine!", start)
                 }
                 if non_mines_left == 0 {
-                    print("\x1B[");
-                    print_usize(HEIGHT - y);
-                    print("B\x1B[");
-                    print_usize(x * 2 + 2);
-                    print("D\n\x1B[37mYou win!\nPlaytime: ");
-                    timestamp(start);
-                    print("s\n");
-                    unsafe { unreachable_unchecked() }
+                    end(b"You win!", start);
                 }
             }
         }
+        set_cursor(x as i16 * 2 + 2, y as i16);
     }
+}
+
+#[inline(never)]
+fn end(str: &[u8], start: u64) {
+    set_cursor(0, HEIGHT as i16 + 1);
+    print(str);
+    print(b"\nPlaytime: ");
+    print_usize(unsafe { (GetTickCount64() - start) / 1000 } as usize);
+    print(b"s\n");
+    unsafe { unreachable_unchecked() }
+}
+
+#[inline(never)]
+fn stdout() -> *mut c_void {
+    unsafe { GetStdHandle(const { -11i32 as u32 }) }
 }
 
 #[inline(never)]
 fn stdout_bytes(ptr: *const u8, len: u32) {
-    unsafe { WriteConsoleA(GetStdHandle(-11i32 as u32), ptr as *const _, len, null_mut(), null_mut()); };
+    unsafe { WriteConsoleA(stdout(), ptr as *const _, len, null_mut(), null_mut()); };
 }
 
 #[inline(always)]
-fn print(str: &'static str) {
+fn print(str: &[u8]) {
     stdout_bytes(str.as_ptr(), str.len() as u32);
 }
 
-#[inline(always)]
-fn timestamp(start: u64) {
-    print_usize(unsafe { (GetTickCount64() as u64 - start) / 1000 } as usize)
-}
-
 #[inline(never)]
-fn fmt(tile: u8) -> &'static [u8; 8] {
-    if tile & 0b10 == 0b10 {
-        return b"\x1B[36;1m$";
-    }
-
-    // if tile & 0b1100 == MINE_TYPE {
-    //     return b"\x1B[31\0\0mX";
-    // }
-
-    if tile & 1 == 0 {
-        return b"\x1B[37m\0\0_";
-    }
-
-    match tile & 0b1100 {
-        EMPTY_TYPE => b"\x1B[30m\0\0 ",
-        WARNING_TYPE => match tile & 0b01110000 {
-            0b00000000 => b"\x1B[34;1m1",
-            0b00010000 => b"\x1B[32m\0\02",
-            0b00100000 => b"\x1B[31;1m3",
-            0b00110000 => b"\x1B[34m\0\04",
-            0b01000000 => b"\x1B[31m\0\05",
-            0b01010000 => b"\x1B[37m\0\06",
-            0b01100000 => b"\x1B[35m\0\07",
-            _ => b"\x1B[37m\0\08",
-        },
-        _ => b"\x1B[31\0\0mX",
-    }
-}
-
-#[inline(never)]
-fn rerender_board(board: &[[u8;WIDTH];HEIGHT], x: usize, y: usize) {
-    let mut array = [b' '; HEIGHT * (WIDTH * 9 + 9)];
-    for i in 0..HEIGHT {
-        array[i * (WIDTH * 9 + 9)] = b'[';
-        for j in 0..WIDTH {
-            array[(i * (WIDTH * 9 + 9) + (j * 9 + 2))..][..8].copy_from_slice(fmt(board[i][j]));
+fn print_tile(tile: u8) {
+    unsafe { WriteConsoleA(stdout(), {
+        if tile & 0b10 == 0b10 {
+            set_color(0b0100);
+            b"$"
+        } else if tile & 1 == 0 {
+            b"_"
+        } else {
+            match tile & 0b1100 {
+                EMPTY_TYPE => b" ",
+                _ => match tile & 0b01110000 {
+                    0b00000000 => {
+                        set_color(0b1001);
+                        b"1"
+                    },
+                    0b00010000 => {
+                        set_color(0b0010);
+                        b"2"
+                    },
+                    0b00100000 => {
+                        set_color(0b1100);
+                        b"3"
+                    },
+                    0b00110000 => {
+                        set_color(0b0001);
+                        b"4"
+                    },
+                    0b01000000 => {
+                        set_color(0b0100);
+                        b"5"
+                    },
+                    0b01010000 => {
+                        set_color(0b0011);
+                        b"6"
+                    },
+                    0b01100000 => {
+                        set_color(0b1000);
+                        b"7"
+                    },
+                    _ => {
+                        set_color(0b1111);
+                        b"8"
+                    }
+                }
+            }
         }
-        array[(i * (WIDTH * 9 + 9) + (WIDTH * 9 + 2))..][..7].copy_from_slice(b"\x1B[37m]\n");
+    }.as_ptr() as *const _, 1, null_mut(), null_mut()); }
+    set_color(0b0111);
+}
+
+#[inline(never)]
+fn rerender_board(board: &[[u8;WIDTH];HEIGHT]) {
+    set_cursor(0, 0);
+    for i in 0..HEIGHT {
+        print(b"[ ");
+        for j in 0..WIDTH {
+            print_tile(board[i][j]);
+            print(b" ");
+        }
+        print(b"]\n")
     }
-    print("\x1Bc");
-    stdout_bytes(array.as_ptr(), (HEIGHT * (WIDTH * 9 + 9)) as u32);
-    print("\x1B[");
-    print_usize(y + 1);
-    print(";");
-    print_usize(x * 2 + 3);
-    print("f");
+}
+
+#[inline(never)]
+fn set_color(color: u16) {
+    unsafe { SetConsoleTextAttribute(stdout(), color); }
 }
 
 #[inline(always)]
@@ -227,32 +245,22 @@ fn place_mines(board: &mut [[u8;WIDTH];HEIGHT], input_x: usize, input_y: usize) 
 }
 
 #[inline(always)]
-unsafe fn read_key() -> KeyAction {
-    let mut buffer: INPUT_RECORD = zeroed();
-    ReadConsoleInputA(GetStdHandle(-10i32 as u32), &mut buffer, 1, &mut zeroed());
-    if buffer.EventType == KEY_EVENT {
-        let key_event: KEY_EVENT_RECORD = transmute(buffer.Event);
-        if key_event.bKeyDown == 0 {
-            Empty
-        } else {
-            let char = *key_event.uChar.AsciiChar();
-            if char == 'f' as i8 {
-                Flag
-            } else if char == 0 {
-                match key_event.wVirtualKeyCode as i32 {
-                    0x26 => Up,
-                    0x28 => Down,
-                    0x25 => Left,
-                    0x27 => Right,
-                    0x0D => Enter,
-                    _ => Empty
-                }
-            } else if char == '\r' as i8 {
-                Enter
-            } else {
-                Empty
+fn read_key() -> KeyAction {
+    let first = unsafe { _getch() };
+    if first == 13 {
+        Enter
+    } else if first == 224 {
+        unsafe {
+            match _getch() {
+                72 => Up,
+                77 => Right,
+                80 => Down,
+                75 => Left,
+                _ => Empty
             }
         }
+    } else if first == 102 {
+        Flag
     } else {
         Empty
     }
@@ -269,6 +277,11 @@ fn print_usize(mut usize: usize) {
         usize /= 10;
     }
     stdout_bytes(unsafe { arr.as_ptr().add(offset) }, (MAX_LENGTH - offset) as u32);
+}
+
+#[inline(never)]
+fn set_cursor(x: i16, y: i16) {
+    unsafe { SetConsoleCursorPosition(stdout(), (x, y)); }
 }
 
 #[repr(u8)]
