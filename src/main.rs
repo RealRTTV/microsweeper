@@ -9,7 +9,6 @@
 #![feature(inline_const)]
 
 use core::hint::unreachable_unchecked;
-use core::ptr::null_mut;
 use core::panic::PanicInfo;
 
 use crate::KeyAction::{Down, Empty, Enter, Flag, Left, Right, Up};
@@ -17,9 +16,9 @@ use crate::KeyAction::{Down, Empty, Enter, Flag, Left, Right, Up};
 // beginner: 9x9 w/ 10 @ 12.3%
 // intermediate: 16x16 w/ 40 @ 15.6%
 // expert: 30x16 w/ 99 @ 20.6%
-const WIDTH: usize = 16;
+const WIDTH: usize = 30;
 const HEIGHT: usize = 16;
-const MINE_COUNT: usize = 40;
+const MINE_COUNT: usize = 99;
 
 const EMPTY_TYPE: u8 = 0b0000;
 const WARNING_TYPE: u8 = 0b0100;
@@ -145,7 +144,7 @@ fn stdout() -> *mut c_void {
 
 #[inline(never)]
 fn stdout_bytes(ptr: *const u8, len: u32) {
-    unsafe { WriteConsoleA(stdout(), ptr as *const _, len, null_mut(), null_mut()); };
+    unsafe { WriteConsoleA(stdout(), ptr as *const _, len, 0usize as *mut _, 0usize as *mut _); };
 }
 
 #[inline(always)]
@@ -155,52 +154,31 @@ fn print(str: &[u8]) {
 
 #[inline(never)]
 fn print_tile(tile: u8) {
-    unsafe { WriteConsoleA(stdout(), {
+    unsafe { WriteConsoleA(stdout(), &{
         if tile & 0b10 == 0b10 {
             set_color(0b0100);
-            b"$"
+            b'$'
         } else if tile & 1 == 0 {
-            b"_"
+            b'_'
         } else {
             match tile & 0b1100 {
-                EMPTY_TYPE => b" ",
-                _ => match tile & 0b01110000 {
-                    0b00000000 => {
-                        set_color(0b1001);
-                        b"1"
-                    },
-                    0b00010000 => {
-                        set_color(0b0010);
-                        b"2"
-                    },
-                    0b00100000 => {
-                        set_color(0b1100);
-                        b"3"
-                    },
-                    0b00110000 => {
-                        set_color(0b0001);
-                        b"4"
-                    },
-                    0b01000000 => {
-                        set_color(0b0100);
-                        b"5"
-                    },
-                    0b01010000 => {
-                        set_color(0b0011);
-                        b"6"
-                    },
-                    0b01100000 => {
-                        set_color(0b1000);
-                        b"7"
-                    },
-                    _ => {
-                        set_color(0b1111);
-                        b"8"
-                    }
+                EMPTY_TYPE => b' ',
+                _ => {
+                    set_color(match tile & 0b01110000 {
+                        0b00000000 => 0b1001,
+                        0b00010000 => 0b0010,
+                        0b00100000 => 0b1100,
+                        0b00110000 => 0b0001,
+                        0b01000000 => 0b0100,
+                        0b01010000 => 0b0011,
+                        0b01100000 => 0b1000,
+                        _ => 0b1111,
+                    });
+                    ((tile & 0b01110000) >> 4) + '1' as u8
                 }
             }
         }
-    }.as_ptr() as *const _, 1, null_mut(), null_mut()); }
+    } as *const u8 as *const _, 1, 0usize as *mut _, 0usize as *mut _); }
     set_color(0b0111);
 }
 
@@ -269,7 +247,7 @@ fn read_key() -> KeyAction {
 
 #[inline(never)]
 fn print_usize(mut usize: usize) {
-    const MAX_LENGTH: usize = 10;
+    const MAX_LENGTH: usize = 6;
     let mut arr = [0; MAX_LENGTH];
     let mut offset = MAX_LENGTH - 1;
     while usize > 0 {
