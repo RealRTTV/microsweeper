@@ -11,7 +11,6 @@
 use core::hint::unreachable_unchecked;
 use core::ptr::null_mut;
 use core::panic::PanicInfo;
-use winapi::ctypes::c_void;
 
 use crate::KeyAction::{Down, Empty, Enter, Flag, Left, Right, Up};
 
@@ -26,11 +25,15 @@ const EMPTY_TYPE: u8 = 0b0000;
 const WARNING_TYPE: u8 = 0b0100;
 const MINE_TYPE: u8 = 0b1000;
 
+#[allow(non_camel_case_types)]
+pub enum c_void {}
+
 #[link(name = "msvcrt")]
 extern {
     pub fn _getch() -> i32;
 }
 
+#[link(name = "kernel32")]
 extern "system" {
     #[allow(improper_ctypes)]
     pub fn SetConsoleCursorPosition(handle: *const c_void, pos: (i16, i16)) -> bool;
@@ -250,14 +253,12 @@ fn read_key() -> KeyAction {
     if first == 13 {
         Enter
     } else if first == 224 {
-        unsafe {
-            match _getch() {
-                72 => Up,
-                77 => Right,
-                80 => Down,
-                75 => Left,
-                _ => Empty
-            }
+        match unsafe { _getch() } {
+            72 => Up,
+            77 => Right,
+            80 => Down,
+            75 => Left,
+            _ => Empty
         }
     } else if first == 102 {
         Flag
