@@ -5,12 +5,8 @@
 
 #![windows_subsystem = "console"]
 
-#![feature(allocator_api)]
-#![feature(alloc_error_handler)]
 #![feature(start)]
-#![feature(box_syntax)]
 #![feature(inline_const)]
-#![feature(int_log)]
 
 use core::hint::unreachable_unchecked;
 use core::ptr::null_mut;
@@ -215,7 +211,7 @@ fn place_mines(board: &mut [[u8;WIDTH];HEIGHT], input_x: usize, input_y: usize) 
     while i < MINE_COUNT {
         let x = random.usize() % WIDTH;
         let y = random.usize() % HEIGHT;
-        if board[y][x] & 0b1100 != MINE_TYPE && !(x == input_x && (y == input_y || y + 1 == input_y || y == input_y + 1)) && !(x == input_x + 1 && (y == input_y || y + 1 == input_y || y == input_y + 1)) && !(x + 1 == input_x && (y == input_y || y + 1 == input_y || y == input_y + 1)) {
+        if board[y][x] & 0b1100 != MINE_TYPE && !(y.abs_diff(input_y) <= 1 && x.abs_diff(input_x) <= 1) {
             board[y][x] = MINE_TYPE;
             for &(x, y) in [(x - 1, y - 1), (x, y - 1), (x + 1, y - 1), (x - 1, y), (x + 1, y), (x - 1, y + 1), (x, y + 1), (x + 1, y + 1)].iter().filter(|(x, y)| x < &WIDTH && y < &HEIGHT) {
                 match board[y][x] & 0b1100 {
@@ -299,7 +295,7 @@ impl Random {
     fn usize(&mut self) -> usize {
         let before = self.0;
         let x = before ^ (before << 13);
-        let x = x ^ (x >> 17);
+        let x = x ^ (!x >> 17);
         self.0 = x ^ (x << 5);
         before as usize
     }
