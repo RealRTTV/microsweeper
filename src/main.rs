@@ -15,9 +15,9 @@ use crate::KeyAction::{Down, Empty, Enter, Flag, Left, Right, Up};
 // beginner: 9x9 w/ 10 @ 12.3%
 // intermediate: 16x16 w/ 40 @ 15.6%
 // expert: 30x16 w/ 99 @ 20.6%
-const WIDTH: usize = 30;
-const HEIGHT: usize = 16;
-const MINE_COUNT: usize = 99;
+const WIDTH: usize = 9;
+const HEIGHT: usize = 9;
+const MINE_COUNT: usize = 10;
 
 const EMPTY_TYPE: u8 = 0b0000;
 const WARNING_TYPE: u8 = 0b01;
