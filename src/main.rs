@@ -38,7 +38,7 @@ extern "system" {
 
     pub fn SetConsoleTextAttribute(handle: *const c_void, attribs: u16) -> bool;
 
-    pub fn GetTickCount64() -> u64;
+    pub fn GetTickCount() -> u32;
 
     pub fn WriteConsoleA(handle: *const c_void, ptr: *const c_void, len: u32, num_chars_written: *mut u32, reserved: *mut c_void) -> bool;
 
@@ -77,7 +77,7 @@ pub unsafe fn main() {
             Enter => if (*board.get_unchecked_mut(y).get_unchecked_mut(x)) & 0b1100 == 0 { // enter key
                 if start == 0 {
                     place_mines(&mut board, x, y);
-                    start = GetTickCount64();
+                    start = GetTickCount();
                 }
 
                 match (*board.get_unchecked_mut(y).get_unchecked_mut(x)) & 0b11 {
@@ -128,11 +128,11 @@ pub unsafe fn main() {
 }
 
 #[inline(never)]
-unsafe fn end(str: *const u8, start: u64, str_len: u32) {
+unsafe fn end(str: *const u8, start: u32, str_len: u32) {
     set_cursor(!0, HEIGHT + 1);
     stdout_bytes(str, str_len);
     stdout_bytes(b"\nPlaytime: ".as_ptr(), 12);
-    print_non_zero_usize(unsafe { (GetTickCount64() - start) / 1000 } as usize);
+    print_non_zero_usize(unsafe { (GetTickCount() - start) / 1000 } as usize);
     stdout_bytes(b"s\n".as_ptr(), 2);
     unsafe { unreachable_unchecked() }
 }
@@ -197,12 +197,12 @@ unsafe fn set_color(color: u8) {
 
 #[inline(always)]
 unsafe fn place_mines(board: &mut [[u8;WIDTH];HEIGHT], input_x: usize, input_y: usize) {
-    let mut random = Random(GetTickCount64());
+    let mut random = Random(GetTickCount());
     let mut i = 0;
     while i < MINE_COUNT {
         let x = random.usize() % WIDTH;
         let y = random.usize() % HEIGHT;
-        if (*board.get_unchecked_mut(y).get_unchecked_mut(x)) & 0b11 != MINE_TYPE && !((y - input_y) <= 2 && (x - input_x) + 1 <= 2) {
+        if !((y - input_y) <= 2 && (x - input_x) + 1 <= 2) && (*board.get_unchecked_mut(y).get_unchecked_mut(x)) & 0b11 != MINE_TYPE {
             (*board.get_unchecked_mut(y).get_unchecked_mut(x)) = MINE_TYPE;
             i += 1;
             for &(x, y) in [(x - 1, y - 1), (x, y - 1), (x + 1, y - 1), (x - 1, y), (x + 1, y), (x - 1, y + 1), (x, y + 1), (x + 1, y + 1)].iter().filter(|(x, y)| x < &WIDTH && y < &HEIGHT) {
@@ -267,7 +267,7 @@ enum KeyAction {
 }
 
 #[repr(transparent)]
-struct Random(u64);
+struct Random(u32);
 
 impl Random {
     #[inline(never)]
