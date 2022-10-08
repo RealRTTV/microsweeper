@@ -1,16 +1,15 @@
 // cargo rustc --release --target i686-pc-windows-msvc  -Zbuild-std=std,panic_abort -Zbuild-std-features=panic_immediate_abort -- -Ccontrol-flow-guard=off
 
+#![no_builtins]
 #![no_main]
 #![no_std]
 
 #![windows_subsystem = "console"]
 
-#![feature(start)]
 #![feature(inline_const)]
 
 use core::hint::unreachable_unchecked;
 use core::panic::PanicInfo;
-
 use crate::KeyAction::{Down, Empty, Enter, Flag, Left, Right, Up};
 
 // beginner: 9x9 w/ 10 @ 12.3%
@@ -21,8 +20,8 @@ const HEIGHT: usize = 16;
 const MINE_COUNT: usize = 99;
 
 const EMPTY_TYPE: u8 = 0b0000;
-const WARNING_TYPE: u8 = 0b0100;
-const MINE_TYPE: u8 = 0b1000;
+const WARNING_TYPE: u8 = 0b01;
+const MINE_TYPE: u8 = 0b10;
 
 #[allow(non_camel_case_types)]
 pub enum c_void {}
@@ -46,16 +45,15 @@ extern "system" {
     pub fn GetStdHandle(id: u32) -> *mut c_void;
 }
 
-#[start]
 #[no_mangle]
-fn main(_: isize, _: *const *const u8) -> isize {
+pub unsafe fn main() {
     let mut board = [[0;WIDTH];HEIGHT];
     let mut start = 0;
     let mut non_mines_left = const { (WIDTH * HEIGHT) - MINE_COUNT };
     let mut x = 0;
     let mut y = 0;
     rerender_board(&board);
-    set_cursor(2, 0);
+    set_cursor(0, 0);
 
     loop {
         match read_key() {
@@ -72,32 +70,34 @@ fn main(_: isize, _: *const *const u8) -> isize {
             Right => if x + 1 < WIDTH { // right key
                 x += 1;
             }
-            Flag => if board[y][x] & 1 == 0 { // f key
-                board[y][x] ^= 0b10;
-                print_tile(board[y][x]);
+            Flag => if (*board.get_unchecked_mut(y).get_unchecked_mut(x)) & 0b100 == 0 { // f key
+                (*board.get_unchecked_mut(y).get_unchecked_mut(x)) ^= 0b1000;
+                print_tile(*board.get_unchecked_mut(y).get_unchecked_mut(x));
             }
-            Enter => if board[y][x] & 0b11 == 0 { // enter key
+            Enter => if (*board.get_unchecked_mut(y).get_unchecked_mut(x)) & 0b1100 == 0 { // enter key
                 if start == 0 {
                     place_mines(&mut board, x, y);
-                    start = unsafe { GetTickCount64() } as u64;
+                    start = GetTickCount64();
                 }
 
-                match board[y][x] & 0b1100 {
+                match (*board.get_unchecked_mut(y).get_unchecked_mut(x)) & 0b11 {
                     EMPTY_TYPE => {
                         let mut arr = [(x, y); WIDTH * HEIGHT];
                         let mut index = 0;
                         loop {
                             let (x, y) = arr[index];
-                            if board[y][x] & 1 == 0 {
-                                board[y][x] |= 1;
+                            let ptr = board.get_unchecked_mut(y).get_unchecked_mut(x);
+                            if *ptr & 0b100 == 0 {
+                                *ptr |= 0b100;
                                 non_mines_left -= 1;
                                 for &(x, y) in [(x - 1, y - 1), (x, y - 1), (x + 1, y - 1), (x - 1, y), (x + 1, y), (x - 1, y + 1), (x, y + 1), (x + 1, y + 1)].iter().filter(|(x, y)| x < &WIDTH && y < &HEIGHT) {
-                                    if board[y][x] & 1 == 0 {
-                                        if board[y][x] & 0b1100 == EMPTY_TYPE {
+                                    let ptr = board.get_unchecked_mut(y).get_unchecked_mut(x);
+                                    if *ptr & 0b100 == 0 {
+                                        if *ptr & 0b11 == EMPTY_TYPE {
                                             arr[index] = (x, y);
                                             index += 1;
                                         } else {
-                                            board[y][x] |= 1;
+                                            *ptr |= 0b100;
                                             non_mines_left -= 1;
                                         }
                                     }
@@ -112,141 +112,138 @@ fn main(_: isize, _: *const *const u8) -> isize {
                         rerender_board(&board);
                     },
                     WARNING_TYPE => {
-                        board[y][x] |= 1;
+                        (*board.get_unchecked_mut(y).get_unchecked_mut(x)) |= 0b100;
                         non_mines_left -= 1;
-                        print_tile(board[y][x]);
+                        print_tile(*board.get_unchecked_mut(y).get_unchecked_mut(x));
                     },
-                    _ => end(b"Game Over!", start)
+                    _ => end(b"Game Over!".as_ptr(), start, 10),
                 }
                 if non_mines_left == 0 {
-                    end(b"You win!", start);
+                    end(b"You win!".as_ptr(), start, 8);
                 }
             }
         }
-        set_cursor(x * 2 + 2, y);
+        set_cursor(x, y);
     }
 }
 
 #[inline(never)]
-fn end(str: &[u8], start: u64) {
-    set_cursor(0, HEIGHT + 1);
-    print(str);
-    print(b"\nPlaytime: ");
+unsafe fn end(str: *const u8, start: u64, str_len: u32) {
+    set_cursor(!0, HEIGHT + 1);
+    stdout_bytes(str, str_len);
+    stdout_bytes(b"\nPlaytime: ".as_ptr(), 12);
     print_non_zero_usize(unsafe { (GetTickCount64() - start) / 1000 } as usize);
-    print(b"s\n");
+    stdout_bytes(b"s\n".as_ptr(), 2);
     unsafe { unreachable_unchecked() }
 }
 
 #[inline(never)]
-fn stdout() -> *mut c_void {
+unsafe fn stdout() -> *mut c_void {
     unsafe { GetStdHandle(const { -11i32 as u32 }) }
 }
 
 #[inline(never)]
-fn stdout_bytes(ptr: *const u8, len: u32) {
-    unsafe { WriteConsoleA(stdout(), ptr as *const _, len, 0usize as *mut _, 0usize as *mut _); };
-}
-
-#[inline(always)]
-fn print(str: &[u8]) {
-    stdout_bytes(str.as_ptr(), str.len() as u32);
+unsafe fn stdout_bytes(ptr: *const u8, len: u32) {
+    unsafe { WriteConsoleA(stdout(), ptr as *const _, len, 0 as *mut _, 0 as *mut _); };
 }
 
 #[inline(never)]
-fn print_tile(tile: u8) {
+unsafe fn print_tile(tile: u8) {
     unsafe { WriteConsoleA(stdout(), &{
-        if tile & 0b10 == 0b10 {
+        if tile & 0b1000 > 0 {
             set_color(0b0100);
             b'$'
-        } else if tile & 1 == 0 {
+        } else if tile & 0b100 == 0 {
             b'_'
         } else {
-            match tile & 0b1100 {
+            match tile & 0b11 {
                 EMPTY_TYPE => b' ',
                 _ => {
-                    set_color(match tile & 0b01110000 {
-                        0b00000000 => 0b1001,
-                        0b00010000 => 0b0010,
-                        0b00100000 => 0b1100,
-                        0b00110000 => 0b0001,
-                        0b01000000 => 0b0100,
-                        0b01010000 => 0b0011,
-                        0b01100000 => 0b1000,
+                    set_color(match tile >> 4 {
+                        0b0000 => 0b1001,
+                        0b0001 => 0b0010,
+                        0b0010 => 0b1100,
+                        0b0011 => 0b0001,
+                        0b0100 => 0b0100,
+                        0b0101 => 0b0011,
+                        0b0110 => 0b1000,
                         _ => 0b1111,
                     });
-                    ((tile & 0b01110000) >> 4) + '1' as u8
+                    (tile >> 4) + b'1'
                 }
             }
         }
-    } as *const u8 as *const _, 1, 0usize as *mut _, 0usize as *mut _); }
-    set_color(0b0111);
+    } as *const u8 as *const _, 1, 0 as *mut _, 0 as *mut _); }
+    set_color(0b0111)
 }
 
 #[inline(never)]
-fn rerender_board(board: &[[u8;WIDTH];HEIGHT]) {
-    set_cursor(0, 0);
+unsafe fn rerender_board(board: &[[u8;WIDTH];HEIGHT]) {
+    set_cursor(!0, 0);
     for i in 0..HEIGHT {
-        print(b"[ ");
+        stdout_bytes(b"[ ".as_ptr(), 2);
         for j in 0..WIDTH {
-            print_tile(board[i][j]);
-            print(b" ");
+            print_tile(*board.get_unchecked(i).get_unchecked(j));
+            stdout_bytes(b" ".as_ptr(), 1);
         }
-        print(b"]\n")
+        stdout_bytes(b"]\n".as_ptr(), 2)
     }
 }
 
 #[inline(never)]
-fn set_color(color: u16) {
-    unsafe { SetConsoleTextAttribute(stdout(), color); }
+unsafe fn set_color(color: u8) {
+    unsafe { SetConsoleTextAttribute(stdout(), color as u16); }
 }
 
 #[inline(always)]
-fn place_mines(board: &mut [[u8;WIDTH];HEIGHT], input_x: usize, input_y: usize) {
-    let mut random = Random::new();
+unsafe fn place_mines(board: &mut [[u8;WIDTH];HEIGHT], input_x: usize, input_y: usize) {
+    let mut random = Random(GetTickCount64());
     let mut i = 0;
     while i < MINE_COUNT {
         let x = random.usize() % WIDTH;
         let y = random.usize() % HEIGHT;
-        if board[y][x] & 0b1100 != MINE_TYPE && !((y - input_y) + 1 <= 2 && (x - input_x) + 1 <= 2) {
-            board[y][x] = MINE_TYPE;
+        if (*board.get_unchecked_mut(y).get_unchecked_mut(x)) & 0b11 != MINE_TYPE && !((y - input_y) <= 2 && (x - input_x) + 1 <= 2) {
+            (*board.get_unchecked_mut(y).get_unchecked_mut(x)) = MINE_TYPE;
+            i += 1;
             for &(x, y) in [(x - 1, y - 1), (x, y - 1), (x + 1, y - 1), (x - 1, y), (x + 1, y), (x - 1, y + 1), (x, y + 1), (x + 1, y + 1)].iter().filter(|(x, y)| x < &WIDTH && y < &HEIGHT) {
-                match board[y][x] & 0b1100 {
+                (*board.get_unchecked_mut(y).get_unchecked_mut(x)) = match (*board.get_unchecked_mut(y).get_unchecked_mut(x)) & 0b11 {
                     EMPTY_TYPE => {
-                        board[y][x] = WARNING_TYPE;
+                        WARNING_TYPE
                     }
                     WARNING_TYPE => {
-                        board[y][x] = (board[y][x] & 0b10001111) | ((board[y][x] & 0b01110000) + 16)
+                        ((*board.get_unchecked_mut(y).get_unchecked_mut(x)) & 0b00001111) | (((*board.get_unchecked_mut(y).get_unchecked_mut(x)) & 0b11110000) + 16)
                     }
-                    _ => {}
+                    _ => {
+                        MINE_TYPE
+                    }
                 }
             }
-            i += 1;
         }
     }
 }
 
 #[inline(always)]
-fn read_key() -> KeyAction {
-    let first = unsafe { _getch() };
+unsafe fn read_key() -> KeyAction {
+    let first = _getch();
     if first == 13 {
         Enter
+    } else if first == 102 {
+        Flag
     } else if first == 224 {
-        match unsafe { _getch() } {
+        match _getch() {
             72 => Up,
             77 => Right,
             80 => Down,
             75 => Left,
             _ => Empty
         }
-    } else if first == 102 {
-        Flag
     } else {
         Empty
     }
 }
 
 #[inline(always)]
-fn print_non_zero_usize(mut usize: usize) {
+unsafe fn print_non_zero_usize(mut usize: usize) {
     while usize > 0 {
         stdout_bytes(&((usize % 10) as u8 + '0' as u8) as *const _, 1);
         usize /= 10;
@@ -254,8 +251,8 @@ fn print_non_zero_usize(mut usize: usize) {
 }
 
 #[inline(never)]
-fn set_cursor(x: usize, y: usize) {
-    unsafe { SetConsoleCursorPosition(stdout(), (*(&x as *const usize as *const i16), *(&y as *const usize as *const i16))); }
+unsafe fn set_cursor(x: usize, y: usize) {
+    unsafe { SetConsoleCursorPosition(stdout(), (x as i16 * 2 + 2, y as i16)); }
 }
 
 #[repr(u8)]
@@ -274,22 +271,17 @@ struct Random(u64);
 
 impl Random {
     #[inline(never)]
-    fn usize(&mut self) -> usize {
+    unsafe fn usize(&mut self) -> usize {
         let before = self.0;
         let x = before ^ (before << 13);
         let x = x ^ (!x >> 17);
         self.0 = x ^ (x << 5);
         before as usize
     }
-
-    #[inline(always)]
-    fn new() -> Random {
-        Random(unsafe { GetTickCount64() } as u64)
-    }
 }
 
-#[panic_handler]
 #[inline(always)]
-fn panic_handler(_: &PanicInfo) -> ! {
-    unsafe { unreachable_unchecked() }
+#[panic_handler]
+pub unsafe fn panic(_: &PanicInfo) -> ! {
+    unreachable_unchecked()
 }
