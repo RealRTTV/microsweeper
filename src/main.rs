@@ -211,7 +211,7 @@ unsafe fn place_mines(board: &mut [[u8;WIDTH];HEIGHT], input_x: usize, input_y: 
     while i < MINE_COUNT {
         let x = random.usize() % WIDTH;
         let y = random.usize() % HEIGHT;
-        if !((y - input_y) <= 2 && (x - input_x) + 1 <= 2) && (*board.get_unchecked_mut(y).get_unchecked_mut(x)) & 0b11 != MINE_TYPE {
+        if !((input_y - y) + 1 <= 2 && (input_x - x) + 1 <= 2) && (*board.get_unchecked_mut(y).get_unchecked_mut(x)) & 0b11 != MINE_TYPE {
             (*board.get_unchecked_mut(y).get_unchecked_mut(x)) = MINE_TYPE;
             i += 1;
             for &(x, y) in [(x - 1, y - 1), (x, y - 1), (x + 1, y - 1), (x - 1, y), (x + 1, y), (x - 1, y + 1), (x, y + 1), (x + 1, y + 1)].iter().filter(|(x, y)| x < &WIDTH && y < &HEIGHT) {
