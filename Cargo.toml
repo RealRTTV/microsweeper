@@ -1,6 +1,6 @@
 [package]
 name = "microsweeper"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -12,6 +12,7 @@ debug = false
 codegen-units = 1
 panic = "abort"
 strip = true
+incremental = false
 
 [profile.release.build-override]
 opt-level = "z"
