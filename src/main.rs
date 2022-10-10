@@ -19,7 +19,7 @@ const WIDTH: usize = 30;
 const HEIGHT: usize = 16;
 const MINE_COUNT: usize = 99;
 
-const EMPTY_TYPE: u8 = 0b0000;
+const EMPTY_TYPE: u8 = 0b00;
 const WARNING_TYPE: u8 = 0b01;
 const MINE_TYPE: u8 = 0b10;
 
@@ -135,7 +135,7 @@ unsafe fn end(str: *const u8, start: u32, str_len: u32, board: &[[u8;WIDTH];HEIG
     print_non_zero_usize(unsafe { (GetTickCount64() as u32 - start) / 1000 } as usize);
     stdout_bytes(b"s\n".as_ptr(), 2);
     rerender_board(board, true);
-    unsafe { unreachable_unchecked() }
+    loop { unsafe { _getch(); } }
 }
 
 #[inline(never)]
